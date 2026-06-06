@@ -90,7 +90,7 @@ local function sendDiscordEmbed(eventType, name, isEnd)
         ["title"] = titleText,
         ["description"] = descriptionText,
         ["color"] = colorHex,
-        ["footer"] = { ["text"] = "J.JARAM JX 2x54 • " .. serverId },
+        ["footer"] = { ["text"] = "J.JARAM JX 2x60 • " .. serverId },
         ["timestamp"] = os.date("!%Y-%m-%dT%H:%M:%SZ") 
     }
 
