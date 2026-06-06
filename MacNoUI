@@ -1,5 +1,5 @@
 -- ==========================================
--- SOL'S RNG TRACKER V6.5 (CUSTOM DISCORD EMBED)
+-- SOL'S RNG TRACKER V7 (STRICT BIOME FIX)
 -- ==========================================
 local HttpService = game:GetService("HttpService")
 local Players = game:GetService("Players")
@@ -15,7 +15,7 @@ local BIOME_KEYWORDS = {"NORMAL", "WINDY", "RAINY", "SNOWY", "SANDSTORM", "HELL"
 local MERCHANT_NAMES = {"Mari", "Rin", "Jester"}
 
 -- ==========================================
--- HÀM GỬI WEBHOOK (CHUẨN FORMAT ẢNH)
+-- HÀM GỬI WEBHOOK
 -- ==========================================
 local function sendDiscordEmbed(eventType, name, isEnd)
     local webhookUrl = getgenv().Webhook
@@ -24,17 +24,14 @@ local function sendDiscordEmbed(eventType, name, isEnd)
         webhookUrl = string.gsub(webhookUrl, "discord.com", "webhook.lewisakura.moe") 
     end
 
-    -- Lấy thông tin cơ bản
     local playerName = player.Name
     local jobId = game.JobId ~= "" and game.JobId or "Private/Studio"
     local psLink = getgenv().PSLink or ""
     local linkText = (psLink ~= "") and ("[Private Server Link](" .. psLink .. ")") or "`Chưa gắn link`"
     
-    -- Format Thời gian thực của Discord (Ví dụ: June 6, 2026 • 6:36 PM (2 minutes ago))
     local unixTime = os.time()
     local timeFormat = "<t:" .. unixTime .. ":F> ( <t:" .. unixTime .. ":R> )"
 
-    -- Xây dựng nội dung Embed
     local titleText = ""
     local colorHex = 0
     local pingContent = ""
@@ -59,7 +56,7 @@ local function sendDiscordEmbed(eventType, name, isEnd)
     elseif eventType == "Biome" then
         local state = isEnd and "Ended" or "Started"
         titleText = "🌍 " .. name .. " Biome " .. state
-        colorHex = isEnd and 0x2C3E50 or 0x3498DB -- Xanh dương khi có, Xám đen khi hết
+        colorHex = isEnd and 0x2C3E50 or 0x3498DB
         
         descriptionText = "**Owner:** `" .. playerName .. "`\n" ..
                           "**Detected by:** `" .. playerName .. "`\n" ..
@@ -67,7 +64,6 @@ local function sendDiscordEmbed(eventType, name, isEnd)
                           "**Private Server:** " .. linkText
     end
 
-    -- Đóng gói JSON
     local payload = {
         ["content"] = (pingContent ~= "") and pingContent or nil,
         ["embeds"] = {{
@@ -92,25 +88,36 @@ end
 -- ==========================================
 -- HÀM QUÉT DỮ LIỆU
 -- ==========================================
-local function cleanAndCheckBiome(text)
-    if not text or text == "" then return nil end
-    local upperText = string.upper(text)
-    for _, biome in ipairs(BIOME_KEYWORDS) do
-        if string.find(upperText, biome) then return biome end
-    end
-    return nil
-end
-
-local function scanForBiomeTarget()
-    for _, v in ipairs(Workspace:GetDescendants()) do
-        if v:IsA("StringValue") and (v.Name:lower() == "biome" or cleanAndCheckBiome(v.Value)) then return v, "Value" end
-    end
-    if player and player:FindFirstChild("PlayerGui") then
-        for _, v in ipairs(player.PlayerGui:GetDescendants()) do
-            if v:IsA("TextLabel") and v.Visible and cleanAndCheckBiome(v.Text) and #v.Text < 30 then return v, "Text" end
+local function getCurrentBiome()
+    -- 1. Ưu tiên đọc biến Data gốc của game (Chuẩn 100%)
+    local workspaceBiome = Workspace:FindFirstChild("Biome")
+    if workspaceBiome and workspaceBiome:IsA("StringValue") then
+        local cleanVal = string.upper(string.match(workspaceBiome.Value, "^%s*(.-)%s*$") or "")
+        for _, kw in ipairs(BIOME_KEYWORDS) do
+            if string.find(cleanVal, kw) then return kw end
         end
     end
-    return nil, nil
+
+    -- 2. Nếu phải quét UI, Lọc cực kỳ khắt khe (Chống nhầm Aura/Chat)
+    if player and player:FindFirstChild("PlayerGui") then
+        for _, v in ipairs(player.PlayerGui:GetDescendants()) do
+            if v:IsA("TextLabel") and v.Visible then
+                local text = v.Text
+                -- Giới hạn độ dài để loại bỏ thẳng các dòng chat/log dài
+                if text and #text < 25 then 
+                    local cleanText = string.upper(string.match(text, "^%s*(.-)%s*$") or "")
+                    for _, biome in ipairs(BIOME_KEYWORDS) do
+                        -- UI thật của Biome thường chỉ ghi tên hoặc nằm trong ngoặc vuông []
+                        if cleanText == biome or cleanText == ("[" .. biome .. "]") or cleanText == ("BIOME: " .. biome) then
+                            return biome
+                        end
+                    end
+                end
+            end
+        end
+    end
+    
+    return nil
 end
 
 local function scanForMerchants()
@@ -135,34 +142,32 @@ end
 -- ==========================================
 -- VÒNG LẶP CHẠY NGẦM
 -- ==========================================
-local currentBiome = ""
+local currentBiome = "NORMAL"
 local activeMerchants = {}
-local targetObject = nil
-local targetProperty = ""
 
-print("[Sol's Tracker] Đang khởi động hệ thống V6.5...")
+print("[Sol's Tracker] Đang khởi động hệ thống V7 (Strict Biome Fix)...")
 
 getgenv().SolsTrackerLoop = task.spawn(function()
     while true do
-        -- 1. QUÉT BIOME
-        if not targetObject or not targetObject:IsDescendantOf(game) then
-            targetObject, targetProperty = scanForBiomeTarget()
-        end
+        -- 1. QUÉT BIOME (Trực tiếp mỗi giây, không dùng Cache)
+        local detectedBiome = getCurrentBiome()
         
-        if targetObject then
-            local rawValue = targetObject[targetProperty]
-            local detectedBiome = cleanAndCheckBiome(rawValue)
-            if detectedBiome and detectedBiome ~= currentBiome then
-                -- Báo hiệu Biome cũ kết thúc (nếu có)
-                if currentBiome ~= "" then
-                    sendDiscordEmbed("Biome", currentBiome, true)
-                end
-                
-                currentBiome = detectedBiome
-                
-                -- Báo hiệu Biome mới bắt đầu
+        -- Nếu tìm thấy Biome và nó khác với Biome cũ
+        if detectedBiome and detectedBiome ~= currentBiome then
+            
+            -- Kết thúc Biome cũ (Chỉ thông báo nếu cũ không phải là NORMAL)
+            if currentBiome ~= "NORMAL" then
+                sendDiscordEmbed("Biome", currentBiome, true)
+            end
+            
+            -- Cập nhật Biome hiện tại
+            currentBiome = detectedBiome
+            
+            -- Bắt đầu Biome mới (Chỉ thông báo nếu mới không phải là NORMAL)
+            if currentBiome ~= "NORMAL" then
                 sendDiscordEmbed("Biome", currentBiome, false)
             end
+            
         end
 
         -- 2. QUÉT MERCHANT
