@@ -1,22 +1,23 @@
--- ==========================================
--- SOL'S RNG TRACKER V7.6 (DIRECT PATH OPTIMIZED)
--- ==========================================
+-- Chlomy :3
+
 local HttpService = game:GetService("HttpService")
 local Players = game:GetService("Players")
 local Workspace = game:GetService("Workspace")
 
 local player = Players.LocalPlayer
 
-if getgenv().SolsTrackerLoop then
-    task.cancel(getgenv().SolsTrackerLoop)
+if getgenv().SolsTrackerLoop then task.cancel(getgenv().SolsTrackerLoop) end
+if getgenv().BiomeConnections then
+    for _, conn in ipairs(getgenv().BiomeConnections) do conn:Disconnect() end
 end
+getgenv().BiomeConnections = {}
 
-local BIOME_KEYWORDS = {"NORMAL", "WINDY", "RAINY", "SNOWY", "SANDSTORM", "HELL", "STARFALL", "CORRUPTION", "GLITCHED", "DREAMSPACE", "CYBERSPACE", "SINGULARITY"}
+local BIOME_KEYWORDS = {"NORMAL", "WINDY", "RAINY", "SNOWY", "SANDSTORM", "HELL", "STARFALL", "CORRUPTION", "DREAMSPACE", "CYBERSPACE", "SINGULARITY"}
 local MERCHANT_NAMES = {"Mari", "Rin", "Jester"}
 
--- ==========================================
--- HÀM GỬI WEBHOOK
--- ==========================================
+local currentBiome = "" 
+local activeMerchants = {}
+
 local function sendDiscordEmbed(eventType, name, isEnd)
     local webhookUrl = getgenv().Webhook
     if not webhookUrl or webhookUrl == "" then return false end
@@ -29,146 +30,134 @@ local function sendDiscordEmbed(eventType, name, isEnd)
     local unixTime = os.time()
     local timeFormat = "<t:" .. unixTime .. ":F> ( <t:" .. unixTime .. ":R> )"
 
-    local titleText = ""
+    local titleText, descriptionText = "", ""
     local colorHex = 0
     local pingContent = ""
-    local descriptionText = ""
 
     if eventType == "Merchant" then
         local icon = "🛒"
-        if name == "Mari" then 
-            icon = "🛍️"; colorHex = 0xE91E63; pingContent = getgenv().PingMari or ""
-        elseif name == "Rin" then 
-            icon = "🦊"; colorHex = 0xE67E22; pingContent = getgenv().PingRin or ""
-        elseif name == "Jester" then 
-            icon = "🃏"; colorHex = 0x9B59B6; pingContent = getgenv().PingJester or ""
-        end
+        if name == "Mari" then icon = "🛍️"; colorHex = 0xE91E63; pingContent = getgenv().PingMari or ""
+        elseif name == "Rin" then icon = "🦊"; colorHex = 0xE67E22; pingContent = getgenv().PingRin or ""
+        elseif name == "Jester" then icon = "🃏"; colorHex = 0x9B59B6; pingContent = getgenv().PingJester or "" end
         
         titleText = icon .. " " .. name .. " Has Arrived!"
-        descriptionText = "**Owner:** `" .. playerName .. "`\n" ..
-                          "**Detected by:** `" .. playerName .. "`\n" ..
-                          "**Detected At:** " .. timeFormat .. "\n" ..
-                          "**Private Server:** " .. linkText
+        descriptionText = "**Owner:** `" .. playerName .. "`\n**Detected At:** " .. timeFormat .. "\n**Private Server:** " .. linkText
 
     elseif eventType == "Biome" then
         local state = isEnd and "Ended" or "Started"
         titleText = "🌍 " .. name .. " Biome " .. state
         colorHex = isEnd and 0x2C3E50 or 0x3498DB
         
-        descriptionText = "**Owner:** `" .. playerName .. "`\n" ..
-                          "**Detected by:** `" .. playerName .. "`\n" ..
-                          "**Time:** " .. timeFormat .. "\n" ..
-                          "**Private Server:** " .. linkText
+        if name == "GLITCHED" then
+            colorHex = 0x000000 
+            titleText = "👾 🙽 GLITCHED BIOME " .. state .. " 🙽"
+        end
+
+        descriptionText = "**Owner:** `" .. playerName .. "`\n**Time:** " .. timeFormat .. "\n**Private Server:** " .. linkText
     end
 
     local payload = {
         ["content"] = (pingContent ~= "") and pingContent or nil,
-        ["embeds"] = {{
-            ["title"] = titleText,
-            ["description"] = descriptionText,
-            ["color"] = colorHex,
-            ["footer"] = {
-                ["text"] = "Sols Tracker JX • " .. jobId
-            }
-        }}
+        ["embeds"] = {{ ["title"] = titleText, ["description"] = descriptionText, ["color"] = colorHex, ["footer"] = { ["text"] = "Meowsollusion Hunters • " .. jobId } }}
     }
     
     local jsonData = HttpService:JSONEncode(payload)
     local httprequest = (syn and syn.request) or (http and http.request) or http_request or fluxus.request or request
     
     if httprequest then 
-        local success, response = pcall(function()
-            return httprequest({
-                Url = webhookUrl, 
-                Method = "POST", 
-                Headers = {["Content-Type"] = "application/json"}, 
-                Body = jsonData
-            })
-        end)
-        return success 
+        pcall(function() httprequest({Url = webhookUrl, Method = "POST", Headers = {["Content-Type"] = "application/json"}, Body = jsonData}) end)
     end
-    return false
 end
 
--- ==========================================
--- HÀM QUÉT DỮ LIỆU CHÍNH XÁC
--- ==========================================
-local function getCurrentBiome()
+local function processBiomeDetection(rawText)
+    if not rawText or rawText == "" then return end
+    
+    local cleanText = string.upper(string.match(rawText, "^%s*(.-)%s*$") or "")
+    local compactText = string.gsub(cleanText, "%s+", "") 
+    
+    local detected = nil
+    
+    if string.find(cleanText, "GLITCHED") 
+       or string.find(compactText, "ERRORWHILERETRIEVINGTIMEDATA") 
+       or string.find(cleanText, "%x%x%x%x%x%x%x%x%-%x%x%x%x%-%x%x%x%x%-%x%x%x%x%-%x%x%x%x%x%x%x%x%x%x%x%x") then
+        detected = "GLITCHED"
+    else
+        for _, biome in ipairs(BIOME_KEYWORDS) do
+            if string.find(cleanText, biome) then 
+                detected = biome 
+                break
+            end
+        end
+    end
+
+    if detected and detected ~= currentBiome then
+        if currentBiome ~= "" then sendDiscordEmbed("Biome", currentBiome, true) end
+        currentBiome = detected
+        sendDiscordEmbed("Biome", currentBiome, false)
+    end
+end
+
+local function manualBiomeCheck()
     local workspaceBiome = Workspace:FindFirstChild("Biome")
     if workspaceBiome and workspaceBiome:IsA("StringValue") then
-        local cleanVal = string.upper(string.match(workspaceBiome.Value, "^%s*(.-)%s*$") or "")
-        for _, kw in ipairs(BIOME_KEYWORDS) do
-            if string.find(cleanVal, kw) then return kw end
-        end
+        processBiomeDetection(workspaceBiome.Value)
     end
 
     if player and player:FindFirstChild("PlayerGui") then
         local mainInterface = player.PlayerGui:FindFirstChild("MainInterface")
         if mainInterface then
-            local children = mainInterface:GetChildren()
-            local targetElement = children[9] -- Có thể đổi thành :FindFirstChild("Tên_Thật") nếu muốn ổn định lâu dài
-            
+            local targetElement = mainInterface:GetChildren()[9]
             if targetElement and targetElement:FindFirstChild("TextLabel") then
-                local textLabel = targetElement.TextLabel
-                local text = textLabel.Text
-                if text and text ~= "" then
-                    local cleanText = string.upper(string.match(text, "^%s*(.-)%s*$") or "")
-                    for _, biome in ipairs(BIOME_KEYWORDS) do
-                        if string.find(cleanText, biome) then 
-                            return biome 
-                        end
+                processBiomeDetection(targetElement.TextLabel.Text)
+            end
+        end
+    end
+end
+
+print("[Sol's Tracker] Đang khởi động hệ thống V8.1 (Hybrid)...")
+
+local wsBiome = Workspace:FindFirstChild("Biome")
+if wsBiome and wsBiome:IsA("StringValue") then
+    local conn1 = wsBiome:GetPropertyChangedSignal("Value"):Connect(function()
+        processBiomeDetection(wsBiome.Value)
+    end)
+    table.insert(getgenv().BiomeConnections, conn1)
+end
+
+if player and player:FindFirstChild("PlayerGui") then
+    local mainInt = player.PlayerGui:FindFirstChild("MainInterface")
+    if mainInt then
+        local tElement = mainInt:GetChildren()[9]
+        if tElement and tElement:FindFirstChild("TextLabel") then
+            local conn2 = tElement.TextLabel:GetPropertyChangedSignal("Text"):Connect(function()
+                processBiomeDetection(tElement.TextLabel.Text)
+            end)
+            table.insert(getgenv().BiomeConnections, conn2)
+        end
+    end
+end
+
+getgenv().SolsTrackerLoop = task.spawn(function()
+    while true do
+        manualBiomeCheck()
+
+        local foundMerchants = {}
+        for _, v in ipairs(Workspace:GetDescendants()) do
+            if v:IsA("Model") then
+                for _, name in ipairs(MERCHANT_NAMES) do
+                    if string.find(v.Name, name) then foundMerchants[name] = true end
+                end
+                local prompt = v:FindFirstChildWhichIsA("ProximityPrompt", true)
+                if prompt then
+                    local textToCheck = (prompt.ObjectText or "") .. " " .. (prompt.ActionText or "")
+                    for _, name in ipairs(MERCHANT_NAMES) do
+                        if string.find(textToCheck, name) then foundMerchants[name] = true end
                     end
                 end
             end
         end
-    end
-    return nil
-end
-
-local function scanForMerchants()
-    local found = {}
-    for _, v in ipairs(Workspace:GetDescendants()) do
-        if v:IsA("Model") then
-            for _, name in ipairs(MERCHANT_NAMES) do
-                if string.find(v.Name, name) then found[name] = true end
-            end
-            local prompt = v:FindFirstChildWhichIsA("ProximityPrompt", true)
-            if prompt then
-                local textToCheck = (prompt.ObjectText or "") .. " " .. (prompt.ActionText or "")
-                for _, name in ipairs(MERCHANT_NAMES) do
-                    if string.find(textToCheck, name) then found[name] = true end
-                end
-            end
-        end
-    end
-    return found
-end
-
--- ==========================================
--- VÒNG LẶP CHẠY NGẦM
--- ==========================================
-local currentBiome = "" 
-local activeMerchants = {}
-
-print("[Sol's Tracker] Đang khởi động hệ thống V7.6 (Tối ưu hóa đường dẫn UI)...")
-
-getgenv().SolsTrackerLoop = task.spawn(function()
-    while true do
-        -- 1. QUÉT BIOME
-        local detectedBiome = getCurrentBiome()
         
-        if detectedBiome and detectedBiome ~= currentBiome then
-            if currentBiome ~= "" then
-                sendDiscordEmbed("Biome", currentBiome, true)
-            end
-            currentBiome = detectedBiome
-            sendDiscordEmbed("Biome", currentBiome, false)
-        end
-
-        -- 2. QUÉT MERCHANT
-        local currentlyFoundMerchants = scanForMerchants()
-        
-        for merchantName, _ in pairs(currentlyFoundMerchants) do
+        for merchantName, _ in pairs(foundMerchants) do
             if not activeMerchants[merchantName] then
                 activeMerchants[merchantName] = true
                 sendDiscordEmbed("Merchant", merchantName, false)
@@ -176,11 +165,11 @@ getgenv().SolsTrackerLoop = task.spawn(function()
         end
         
         for merchantName, _ in pairs(activeMerchants) do
-            if not currentlyFoundMerchants[merchantName] then
+            if not foundMerchants[merchantName] then
                 activeMerchants[merchantName] = nil
             end
         end
 
-        task.wait(3)
+        task.wait(5)
     end
 end)
