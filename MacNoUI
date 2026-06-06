@@ -1,0 +1,186 @@
+-- ==========================================
+-- SOL'S RNG TRACKER V6.5 (CUSTOM DISCORD EMBED)
+-- ==========================================
+local HttpService = game:GetService("HttpService")
+local Players = game:GetService("Players")
+local Workspace = game:GetService("Workspace")
+
+local player = Players.LocalPlayer
+
+if getgenv().SolsTrackerLoop then
+    task.cancel(getgenv().SolsTrackerLoop)
+end
+
+local BIOME_KEYWORDS = {"NORMAL", "WINDY", "RAINY", "SNOWY", "SANDSTORM", "HELL", "STARFALL", "CORRUPTION", "GLITCHED", "DREAMSPACE", "CYBERSPACE", "SINGULARITY"}
+local MERCHANT_NAMES = {"Mari", "Rin", "Jester"}
+
+-- ==========================================
+-- HÀM GỬI WEBHOOK (CHUẨN FORMAT ẢNH)
+-- ==========================================
+local function sendDiscordEmbed(eventType, name, isEnd)
+    local webhookUrl = getgenv().Webhook
+    if not webhookUrl or webhookUrl == "" then return false end
+    if string.find(webhookUrl, "discord.com") then 
+        webhookUrl = string.gsub(webhookUrl, "discord.com", "webhook.lewisakura.moe") 
+    end
+
+    -- Lấy thông tin cơ bản
+    local playerName = player.Name
+    local jobId = game.JobId ~= "" and game.JobId or "Private/Studio"
+    local psLink = getgenv().PSLink or ""
+    local linkText = (psLink ~= "") and ("[Private Server Link](" .. psLink .. ")") or "`Chưa gắn link`"
+    
+    -- Format Thời gian thực của Discord (Ví dụ: June 6, 2026 • 6:36 PM (2 minutes ago))
+    local unixTime = os.time()
+    local timeFormat = "<t:" .. unixTime .. ":F> ( <t:" .. unixTime .. ":R> )"
+
+    -- Xây dựng nội dung Embed
+    local titleText = ""
+    local colorHex = 0
+    local pingContent = ""
+    local descriptionText = ""
+
+    if eventType == "Merchant" then
+        local icon = "🛒"
+        if name == "Mari" then 
+            icon = "🛍️"; colorHex = 0xE91E63; pingContent = getgenv().PingMari or ""
+        elseif name == "Rin" then 
+            icon = "🦊"; colorHex = 0xE67E22; pingContent = getgenv().PingRin or ""
+        elseif name == "Jester" then 
+            icon = "🃏"; colorHex = 0x9B59B6; pingContent = getgenv().PingJester or ""
+        end
+        
+        titleText = icon .. " " .. name .. " Has Arrived!"
+        descriptionText = "**Owner:** `" .. playerName .. "`\n" ..
+                          "**Detected by:** `" .. playerName .. "`\n" ..
+                          "**Detected At:** " .. timeFormat .. "\n" ..
+                          "**Private Server:** " .. linkText
+
+    elseif eventType == "Biome" then
+        local state = isEnd and "Ended" or "Started"
+        titleText = "🌍 " .. name .. " Biome " .. state
+        colorHex = isEnd and 0x2C3E50 or 0x3498DB -- Xanh dương khi có, Xám đen khi hết
+        
+        descriptionText = "**Owner:** `" .. playerName .. "`\n" ..
+                          "**Detected by:** `" .. playerName .. "`\n" ..
+                          "**Time:** " .. timeFormat .. "\n" ..
+                          "**Private Server:** " .. linkText
+    end
+
+    -- Đóng gói JSON
+    local payload = {
+        ["content"] = (pingContent ~= "") and pingContent or nil,
+        ["embeds"] = {{
+            ["title"] = titleText,
+            ["description"] = descriptionText,
+            ["color"] = colorHex,
+            ["footer"] = {
+                ["text"] = "Sols Tracker JX • " .. jobId
+            }
+        }}
+    }
+    
+    local jsonData = HttpService:JSONEncode(payload)
+    local httprequest = (syn and syn.request) or (http and http.request) or http_request or fluxus.request or request
+    if httprequest then 
+        httprequest({Url = webhookUrl, Method = "POST", Headers = {["Content-Type"] = "application/json"}, Body = jsonData}) 
+        return true 
+    end
+    return false
+end
+
+-- ==========================================
+-- HÀM QUÉT DỮ LIỆU
+-- ==========================================
+local function cleanAndCheckBiome(text)
+    if not text or text == "" then return nil end
+    local upperText = string.upper(text)
+    for _, biome in ipairs(BIOME_KEYWORDS) do
+        if string.find(upperText, biome) then return biome end
+    end
+    return nil
+end
+
+local function scanForBiomeTarget()
+    for _, v in ipairs(Workspace:GetDescendants()) do
+        if v:IsA("StringValue") and (v.Name:lower() == "biome" or cleanAndCheckBiome(v.Value)) then return v, "Value" end
+    end
+    if player and player:FindFirstChild("PlayerGui") then
+        for _, v in ipairs(player.PlayerGui:GetDescendants()) do
+            if v:IsA("TextLabel") and v.Visible and cleanAndCheckBiome(v.Text) and #v.Text < 30 then return v, "Text" end
+        end
+    end
+    return nil, nil
+end
+
+local function scanForMerchants()
+    local found = {}
+    for _, v in ipairs(Workspace:GetDescendants()) do
+        if v:IsA("ProximityPrompt") then
+            local textToCheck = (v.ObjectText or "") .. " " .. (v.ActionText or "")
+            for _, name in ipairs(MERCHANT_NAMES) do
+                if string.find(textToCheck, name) then found[name] = true end
+            end
+        end
+        if v:IsA("TextLabel") and v:FindFirstAncestorWhichIsA("BillboardGui") then
+            local txt = v.Text or ""
+            for _, name in ipairs(MERCHANT_NAMES) do
+                if string.find(txt, name) then found[name] = true end
+            end
+        end
+    end
+    return found
+end
+
+-- ==========================================
+-- VÒNG LẶP CHẠY NGẦM
+-- ==========================================
+local currentBiome = ""
+local activeMerchants = {}
+local targetObject = nil
+local targetProperty = ""
+
+print("[Sol's Tracker] Đang khởi động hệ thống V6.5...")
+
+getgenv().SolsTrackerLoop = task.spawn(function()
+    while true do
+        -- 1. QUÉT BIOME
+        if not targetObject or not targetObject:IsDescendantOf(game) then
+            targetObject, targetProperty = scanForBiomeTarget()
+        end
+        
+        if targetObject then
+            local rawValue = targetObject[targetProperty]
+            local detectedBiome = cleanAndCheckBiome(rawValue)
+            if detectedBiome and detectedBiome ~= currentBiome then
+                -- Báo hiệu Biome cũ kết thúc (nếu có)
+                if currentBiome ~= "" then
+                    sendDiscordEmbed("Biome", currentBiome, true)
+                end
+                
+                currentBiome = detectedBiome
+                
+                -- Báo hiệu Biome mới bắt đầu
+                sendDiscordEmbed("Biome", currentBiome, false)
+            end
+        end
+
+        -- 2. QUÉT MERCHANT
+        local currentlyFoundMerchants = scanForMerchants()
+        
+        for merchantName, _ in pairs(currentlyFoundMerchants) do
+            if not activeMerchants[merchantName] then
+                activeMerchants[merchantName] = true
+                sendDiscordEmbed("Merchant", merchantName, false)
+            end
+        end
+        
+        for merchantName, _ in pairs(activeMerchants) do
+            if not currentlyFoundMerchants[merchantName] then
+                activeMerchants[merchantName] = nil
+            end
+        end
+
+        task.wait(2.5)
+    end
+end)
