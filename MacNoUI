@@ -1,6 +1,3 @@
--- ==========================================
--- SOL'S RNG TRACKER V8.2 (VISUAL/EMBED OPTIMIZED)
--- ==========================================
 local HttpService = game:GetService("HttpService")
 local Players = game:GetService("Players")
 local Workspace = game:GetService("Workspace")
@@ -19,39 +16,40 @@ local MERCHANT_NAMES = {"Mari", "Rin", "Jester"}
 local currentBiome = "" 
 local activeMerchants = {}
 
--- ==========================================
--- BẢNG MÀU & HÌNH ẢNH BIOME (Ông dán link ảnh vào chữ "Link_Anh_O_Day" nhé)
--- ==========================================
 local BIOME_VISUALS = {
     ["NORMAL"] = {Color = 0xA8D3A3, Image = ""},
-    ["WINDY"] = {Color = 0x2ECC71, Image = ""}, -- Xanh lá
+    ["WINDY"] = {Color = 0x2ECC71, Image = ""},
     ["RAINY"] = {Color = 0x3498DB, Image = ""},
-    ["SNOWY"] = {Color = 0xFFFFFF, Image = ""}, -- Trắng
+    ["SNOWY"] = {Color = 0xFFFFFF, Image = ""},
     ["SANDSTORM"] = {Color = 0xF1C40F, Image = ""},
-    ["HELL"] = {Color = 0xE74C3C, Image = ""}, -- Đỏ
+    ["HELL"] = {Color = 0xE74C3C, Image = ""},
     ["STARFALL"] = {Color = 0x1A5276, Image = ""},
     ["CORRUPTION"] = {Color = 0x8E44AD, Image = ""},
     ["DREAMSPACE"] = {Color = 0xFF69B4, Image = ""},
     ["CYBERSPACE"] = {Color = 0x00FFCC, Image = ""},
     ["SINGULARITY"] = {Color = 0x17202A, Image = ""},
-    ["GLITCHED"] = {Color = 0x000000, Image = ""} -- Đen
+    ["GLITCHED"] = {Color = 0x000000, Image = ""}
 }
 
--- ==========================================
--- HÀM GỬI WEBHOOK Y HỆT ẢNH MẪU
--- ==========================================
 local function sendDiscordEmbed(eventType, name, isEnd)
     local webhookUrl = getgenv().Webhook
     if not webhookUrl or webhookUrl == "" then return false end
 
     local playerName = player.Name
     local jobId = game.JobId ~= "" and game.JobId or "Private/Studio"
-    
-    -- Xử lý hiển thị Link server: Nếu có link thì để link, không có thì đóng khung ID
     local psLink = getgenv().PSLink or ""
     local serverDisplay = (psLink ~= "") and ("[Private Server Link](" .. psLink .. ")") or ("`" .. jobId .. "`")
     
-    -- Format thời gian y hệt ảnh: June 6, 2026 • 6:36:02 PM ( 2 minutes ago )
+    local serverId = "Unknown"
+    if psLink ~= "" then
+        serverId = string.sub(string.gsub(psLink, "%D", ""), 1, 10)
+        if serverId == "" then serverId = "Unknown" end
+    else
+        local digits = string.gsub(jobId, "%D", "")
+        serverId = string.sub(digits, 1, 10)
+        if serverId == "" then serverId = string.sub(jobId, 1, 10) end
+    end
+
     local unixTime = os.time()
     local timeFormat = "<t:" .. unixTime .. ":D> • <t:" .. unixTime .. ":T> ( <t:" .. unixTime .. ":R> )"
 
@@ -64,19 +62,15 @@ local function sendDiscordEmbed(eventType, name, isEnd)
         local icon = "🛒"
         if name == "Mari" then icon = "🛍️"; colorHex = 0xE91E63; pingContent = getgenv().PingMari or ""
         elseif name == "Rin" then icon = "🦊"; colorHex = 0xE67E22; pingContent = getgenv().PingRin or ""
-        elseif name == "Jester" then icon = "🃏"; colorHex = 0xF1C40F; pingContent = getgenv().PingJester or "" end -- Jester viền vàng
+        elseif name == "Jester" then icon = "🃏"; colorHex = 0xF1C40F; pingContent = getgenv().PingJester or "" end
         
         titleText = icon .. " " .. name .. " Has Arrived!"
-        descriptionText = "**Owner:** `" .. playerName .. "`\n" ..
-                          "**Detected by:** `" .. playerName .. "`\n" ..
-                          "**Detected At:** " .. timeFormat .. "\n" ..
-                          "**Private Server:** " .. serverDisplay
+        descriptionText = "**Owner:** `" .. playerName .. "`\n**Detected by:** `" .. playerName .. "`\n**Detected At:** " .. timeFormat .. "\n**Private Server:** " .. serverDisplay
 
     elseif eventType == "Biome" then
         local state = isEnd and "Ended" or "Started"
         titleText = "🌍 " .. name .. " Biome " .. state
         
-        -- Lấy màu và ảnh từ bảng BIOME_VISUALS
         if BIOME_VISUALS[name] then
             colorHex = BIOME_VISUALS[name].Color
             thumbnailUrl = (BIOME_VISUALS[name].Image ~= "") and BIOME_VISUALS[name].Image or nil
@@ -89,22 +83,17 @@ local function sendDiscordEmbed(eventType, name, isEnd)
             colorHex = 0x000000 
         end
 
-        descriptionText = "**Owner:** `" .. playerName .. "`\n" ..
-                          "**Detected by:** `" .. playerName .. "`\n" ..
-                          "**Time:** " .. timeFormat .. "\n" ..
-                          "**Private Server:** " .. serverDisplay
+        descriptionText = "**Owner:** `" .. playerName .. "`\n**Detected by:** `" .. playerName .. "`\n**Time:** " .. timeFormat .. "\n**Private Server:** " .. serverDisplay
     end
 
     local embed = {
         ["title"] = titleText,
         ["description"] = descriptionText,
         ["color"] = colorHex,
-        ["footer"] = { ["text"] = "Sols Tracker JX • " .. jobId },
-        -- Thêm múi giờ UTC để tạo dòng "Today at X:XX PM" nhỏ ở dưới cùng
+        ["footer"] = { ["text"] = "J.JARAM JX 2x54 • " .. serverId },
         ["timestamp"] = os.date("!%Y-%m-%dT%H:%M:%SZ") 
     }
 
-    -- Nếu biome có link ảnh, nhúng nó vào góc trên bên phải (Thumbnail)
     if thumbnailUrl then
         embed["thumbnail"] = { ["url"] = thumbnailUrl }
     end
@@ -122,9 +111,6 @@ local function sendDiscordEmbed(eventType, name, isEnd)
     end
 end
 
--- ==========================================
--- HỆ THỐNG XỬ LÝ NHẬN DIỆN LÕI
--- ==========================================
 local function processBiomeDetection(rawText)
     if not rawText or rawText == "" then return end
     
@@ -169,8 +155,6 @@ local function manualBiomeCheck()
         end
     end
 end
-
-print("[Sol's Tracker] Đang khởi động hệ thống V8.2 (Visual Update)...")
 
 local wsBiome = Workspace:FindFirstChild("Biome")
 if wsBiome and wsBiome:IsA("StringValue") then
