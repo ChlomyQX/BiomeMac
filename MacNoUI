@@ -1,5 +1,5 @@
 -- ==========================================
--- SOL'S RNG TRACKER V7.5 (ALL BIOMES INCLUDED)
+-- SOL'S RNG TRACKER V7.5 (ALL BIOMES INCLUDED) - OPTIMIZED
 -- ==========================================
 local HttpService = game:GetService("HttpService")
 local Players = game:GetService("Players")
@@ -20,9 +20,9 @@ local MERCHANT_NAMES = {"Mari", "Rin", "Jester"}
 local function sendDiscordEmbed(eventType, name, isEnd)
     local webhookUrl = getgenv().Webhook
     if not webhookUrl or webhookUrl == "" then return false end
-    if string.find(webhookUrl, "discord.com") then 
-        webhookUrl = string.gsub(webhookUrl, "discord.com", "webhook.lewisakura.moe") 
-    end
+    
+    -- ĐÃ FIX: Không cần dùng webhook.lewisakura.moe nếu xài executor request. 
+    -- Việc này giúp gửi webhook mượt hơn và không lo proxy bị sập.
 
     local playerName = player.Name
     local jobId = game.JobId ~= "" and game.JobId or "Private/Studio"
@@ -78,15 +78,23 @@ local function sendDiscordEmbed(eventType, name, isEnd)
     
     local jsonData = HttpService:JSONEncode(payload)
     local httprequest = (syn and syn.request) or (http and http.request) or http_request or fluxus.request or request
+    
     if httprequest then 
-        httprequest({Url = webhookUrl, Method = "POST", Headers = {["Content-Type"] = "application/json"}, Body = jsonData}) 
-        return true 
+        local success, response = pcall(function()
+            return httprequest({
+                Url = webhookUrl, 
+                Method = "POST", 
+                Headers = {["Content-Type"] = "application/json"}, 
+                Body = jsonData
+            })
+        end)
+        return success 
     end
     return false
 end
 
 -- ==========================================
--- HÀM QUÉT DỮ LIỆU
+-- HÀM QUÉT DỮ LIỆU TỐI ƯU HÓA
 -- ==========================================
 local function getCurrentBiome()
     local workspaceBiome = Workspace:FindFirstChild("Biome")
@@ -97,38 +105,49 @@ local function getCurrentBiome()
         end
     end
 
+    -- Tối ưu: Thay vì quét toàn bộ GUI, chỉ tìm ở các lớp ngoài để tránh lag
     if player and player:FindFirstChild("PlayerGui") then
-        for _, v in ipairs(player.PlayerGui:GetDescendants()) do
-            if v:IsA("TextLabel") and v.Visible then
-                local text = v.Text
-                if text and #text < 25 then 
-                    local cleanText = string.upper(string.match(text, "^%s*(.-)%s*$") or "")
-                    for _, biome in ipairs(BIOME_KEYWORDS) do
-                        if cleanText == biome or cleanText == ("[" .. biome .. "]") or cleanText == ("BIOME: " .. biome) then
-                            return biome
+        for _, gui in ipairs(player.PlayerGui:GetChildren()) do
+            if gui:IsA("ScreenGui") then
+                for _, v in ipairs(gui:GetDescendants()) do
+                    if v:IsA("TextLabel") and v.Visible then
+                        local text = v.Text
+                        if text and #text < 25 then 
+                            local cleanText = string.upper(string.match(text, "^%s*(.-)%s*$") or "")
+                            for _, biome in ipairs(BIOME_KEYWORDS) do
+                                if cleanText == biome or cleanText == ("[" .. biome .. "]") or cleanText == ("BIOME: " .. biome) then
+                                    return biome
+                                end
+                            end
                         end
                     end
                 end
             end
         end
     end
-    
     return nil
 end
 
 local function scanForMerchants()
     local found = {}
+    -- Tối ưu: Thường merchant trong Sol's RNG xuất hiện dưới dạng Model trực tiếp ở Workspace hoặc trong mục NPCs. 
+    -- Giới hạn quét các Model thay vì toàn bộ Part/Mesh/Texture để giữ FPS cao nhất.
     for _, v in ipairs(Workspace:GetDescendants()) do
-        if v:IsA("ProximityPrompt") then
-            local textToCheck = (v.ObjectText or "") .. " " .. (v.ActionText or "")
+        if v:IsA("Model") then
+            -- Check tên Model trước
             for _, name in ipairs(MERCHANT_NAMES) do
-                if string.find(textToCheck, name) then found[name] = true end
+                if string.find(v.Name, name) then
+                    found[name] = true
+                end
             end
-        end
-        if v:IsA("TextLabel") and v:FindFirstAncestorWhichIsA("BillboardGui") then
-            local txt = v.Text or ""
-            for _, name in ipairs(MERCHANT_NAMES) do
-                if string.find(txt, name) then found[name] = true end
+            
+            -- Nếu có ProximityPrompt bên trong Model đó
+            local prompt = v:FindFirstChildWhichIsA("ProximityPrompt", true)
+            if prompt then
+                local textToCheck = (prompt.ObjectText or "") .. " " .. (prompt.ActionText or "")
+                for _, name in ipairs(MERCHANT_NAMES) do
+                    if string.find(textToCheck, name) then found[name] = true end
+                end
             end
         end
     end
@@ -138,7 +157,6 @@ end
 -- ==========================================
 -- VÒNG LẶP CHẠY NGẦM
 -- ==========================================
--- Để trống từ đầu để khi vừa vào game, quét trúng Biome nào nó sẽ thông báo "Started" Biome đó luôn
 local currentBiome = "" 
 local activeMerchants = {}
 
@@ -150,18 +168,11 @@ getgenv().SolsTrackerLoop = task.spawn(function()
         local detectedBiome = getCurrentBiome()
         
         if detectedBiome and detectedBiome ~= currentBiome then
-            
-            -- Kết thúc Biome cũ (nếu có)
             if currentBiome ~= "" then
                 sendDiscordEmbed("Biome", currentBiome, true)
             end
-            
-            -- Cập nhật Biome hiện tại
             currentBiome = detectedBiome
-            
-            -- Bắt đầu Biome mới
             sendDiscordEmbed("Biome", currentBiome, false)
-            
         end
 
         -- 2. QUÉT MERCHANT
@@ -180,6 +191,7 @@ getgenv().SolsTrackerLoop = task.spawn(function()
             end
         end
 
-        task.wait(2.5)
+        -- Tăng thời gian delay một chút để an toàn cho hiệu năng
+        task.wait(3)
     end
 end)
